@@ -1,0 +1,86 @@
+# ============================================================================
+# DATA CONFIGURATION
+# ============================================================================
+data:
+  # Inference data path (update to your actual path)
+  test_path: "gs://p13n-storage2/data/features/pb_inspirational/cnn_st_nbr/data_new/2025-10-15/test_df_200p"
+  
+  # File patterns
+  test_pattern: "*.parquet"
+  
+  # File limits (optional, for testing)
+  max_test_files: null  # Set to limit number of files, or null for all files
+  
+  # GCS settings
+  download_from_gcs: true
+  temp_dir: "/tmp/repurchase_inference"
+  cleanup_temp_on_exit: true
+  
+  # Column name mapping (maps to actual parquet columns)
+  # Note: No labels needed for inference
+  column_mapping:
+    item_ids: "item_id_arr"
+    membership: "member_day_arr"
+    category_ids: "category_id_arr"  # If available
+
+# ============================================================================
+# SEQUENCE SETTINGS
+# ============================================================================
+# Note: Sequence architecture is loaded from checkpoint, but these are kept for reference
+sequence:
+  max_sequence_length: 1024      # Max items per customer (auto-validated against checkpoint)
+  truncate_strategy: "recent"   # Keep most recent items (auto-validated against checkpoint)
+  
+  # Padding values
+  item_padding_idx: -1          # Used for unknown/padding
+  membership_padding_value: 0.0 # Float: same as non-member (masked by attention_mask)
+
+# # ============================================================================
+# # MODEL ARCHITECTURE
+# # ============================================================================
+# # Note: Model architecture is loaded from checkpoint, but these are kept for reference
+# model:
+#   # These will be loaded from checkpoint, but kept here for documentation
+#   embedding_dim: 128
+#   cnn_layer_enabled: true       # Enable CNN layer
+#   cnn_output_dim: 128
+#   hidden_dim: 256
+#   dropout: 0.1
+#   membership_dim: 364
+  
+#   cnn_kernel_sizes:
+#     weekly: 7
+#     biweekly: 14
+#     monthly: 28
+#     seasonal: 90
+#     trend: 180
+  
+#   set_phi_type: "st_encoder"
+#   perm_eq_num_stacks: 2
+#   num_heads: 4
+#   num_inds: 32
+  
+#   category_pooling_type: "pma"
+#   pma_num_heads: 4
+#   scoring_mode: "both"          # "both", "intrinsic_only", "compatibility_only"
+
+# ============================================================================
+# BATCH SETTINGS
+# ============================================================================
+batch:
+  batch_size: 16                # Can be larger for inference (no gradients)
+  num_workers: 4
+  prefetch_factor: 2
+  pin_memory: true
+
+# ============================================================================
+# INFERENCE SETTINGS
+# ============================================================================
+inference:
+  top_k: 1000                    # Number of top predictions to return per customer
+  
+# ============================================================================
+# DEBUG/DEVELOPMENT
+# ============================================================================
+debug:
+  limit_samples: null           # Set to integer to limit dataset (e.g., 1000 for testing)

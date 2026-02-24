@@ -1,0 +1,197 @@
+# Training Configuration for Repurchase Prediction Model
+# Status: Matches current implementation (dataloader, model, loss, metrics, train)
+
+# ============================================================================
+# REPRODUCIBILITY
+# ============================================================================
+seed: 42  # Random seed for reproducibility
+deterministic: true  # Use deterministic CUDA operations (slower but fully reproducible)
+                     # Set to false for faster training if exact reproducibility is not needed
+
+# ============================================================================
+# DATA CONFIGURATION
+# ============================================================================
+data:
+  # Data paths (update these to your actual paths)
+  train_path: "gs://p13n-storage2/user/y0c07th/pb_public_data/cnntsp/dc/train"
+  test_path: "gs://p13n-storage2/user/y0c07th/pb_public_data/cnntsp/dc/test"
+
+  # File patterns
+  train_pattern: "*.parquet"
+  test_pattern: "*.parquet"
+  
+  # File limits (for testing)
+  max_train_files: 20    # Start small for testing
+  max_test_files: 20
+  
+  # Train/Val split
+  val_split_ratio: 0.05   # 5% for validation
+  split_seed: 42
+  
+  # GCS settings
+  download_from_gcs: true
+  temp_dir: "/tmp/repurchase_data"
+  cleanup_temp_on_exit: true
+  
+  # Column name mapping (maps to actual parquet columns)
+  column_mapping:
+    item_ids: "item_id_arr"
+    labels: "label_arr"
+    membership: "member_day_arr"
+    # category_ids: "category_id_arr"  # If available
+
+# ============================================================================
+# VOCABULARY
+# ============================================================================
+vocabulary:
+  # Build vocab from training data
+  vocab_path: null              # Set to path if you have pre-built vocab
+  build_from_data: true         # Build from training data
+  save_vocab_path: "vocab/item_to_idx.json"
+  
+  # Vocab will be auto-populated after building
+  vocab_size: null              # Auto-populated
+  num_categories: null          # Auto-populated
+
+# ============================================================================
+# SEQUENCE SETTINGS
+# ============================================================================
+sequence:
+  max_sequence_length: 1024      # Max items per customer
+  truncate_strategy: "recent"   # Keep most recent items
+  
+  # Padding values
+  item_padding_idx: -1          # Used for unknown/padding
+  label_padding_value: -100     # Ignored in loss
+  membership_padding_value: 0.0 # Float: same as non-member (masked by attention_mask)
+
+# ============================================================================
+# MODEL ARCHITECTURE
+# ============================================================================
+model:
+  # Will be populated from vocabulary
+  vocab_size: null              # Auto-populated
+  num_categories: null          # Auto-populated
+  
+  # Embedding dimensions
+  embedding_dim: 128            # Item embedding dimension
+  cnn_layer_enabled: true       # Enable CNN layer
+  cnn_output_dim: 128           # CNN output dimension, if cnn layer is disabled, a simple projection layer will be used to ensure the output dimension
+  hidden_dim: 256               # Hidden layer dimension
+  dropout: 0.1
+  membership_dim: 364           # Days in year (binary vector)
+  
+  # CNN kernel sizes for temporal patterns (flat dict structure)
+  cnn_kernel_sizes:
+    weekly: 7
+    biweekly: 14
+    monthly: 28
+    seasonal: 90
+    trend: 180
+  
+  # Set aggregation (FLAT parameters, not nested!)
+  set_phi_type: "st_encoder"    # "st_encoder" (SetTransformer) or "perm_eq_mean" (deep_sets)
+  perm_eq_num_stacks: 2         # Number of DeepSets layers (if using perm_eq_mean)
+  num_heads: 4                  # For SetTransformer (if using st_encoder)
+  num_inds: 32                  # For SetTransformer (if using st_encoder)
+  
+  # Category pooling configuration
+  category_pooling_type: "pma"  # "average" or "pma" (Pooling by Multihead Attention)
+  pma_num_heads: 4              # Number of heads for PMA pooling
+  
+  # Scoring mechanism
+  scoring_mode: "both"          # "both", "intrinsic_only", "compatibility_only"
+
+# ============================================================================
+# BATCH SETTINGS
+# ============================================================================
+batch:
+  batch_size: 8
+  num_workers: 4
+  prefetch_factor: 2
+  shuffle_train: true
+  shuffle_val: false
+  pin_memory: true
+
+# ============================================================================
+# TRAINING PARAMETERS
+# ============================================================================
+training:
+  # Training loop
+  num_epochs: 2  # Train for multiple epochs to allow model to converge
+  gradient_accumulation_steps: 4  # Effective batch = 32 * 4 = 128
+  max_grad_norm: 1.0
+  
+  # Logging and validation (in steps, not epochs)
+  log_interval: 100               # Log metrics every 100 steps
+  val_interval: 1000               # Validate every 500 steps (more frequent to track progress)
+  save_interval: 1000              # Save checkpoint every 500 steps
+  debug_steps: 1000                # Debug batch analysis every 500 steps
+  
+  # Metrics for validation
+  k_values_train: [1, 5, 10, 20]  # Recall@K values to track
+  primary_metric: "Precision@10"     # Metric for best model selection
+
+# ============================================================================
+# OPTIMIZER
+# ============================================================================
+optimizer:
+  type: "adamw"
+  learning_rate: 0.001
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+
+# ============================================================================
+# LEARNING RATE SCHEDULER (Optional)
+# ============================================================================
+scheduler:
+  type: step                    # Options: null, "step", "cosine", "plateau"
+  # Step scheduler
+  step_size: 3000
+  gamma: 0.9
+  # Cosine scheduler
+  t_max: 10000
+  # Plateau scheduler
+  patience: 3
+  factor: 0.5
+
+# ============================================================================
+# LOSS FUNCTION (RankerLoss parameters)
+# ============================================================================
+loss:
+  type: "RankerLoss"  # "BCELoss" or "RankerLoss"
+
+  # RankerLoss parameters
+  margin: 1.0  # Increased from 1.0 to push stronger separation
+
+  # BCELoss parameters
+  pos_weight: null  # Optional: weight positive class more (helps with imbalance)
+  reduction: "mean"
+
+  # Negative sampling parameters
+  neg_sample_ratio: 10          # Number of negative samples per positive
+  sampling_strategy: "mixed"  
+  frequency_window_days: 364  
+
+  strategy_weights: # mixed
+    hard: 0.45                 # 40% hard negatives
+    frequency: 0.45             # 30% frequency-based
+    # recency: 0.05                # 20% recency-based
+    random: 0.1            # 10% random
+
+
+# TODO: BCE loss experiments
+
+# ============================================================================
+# OUTPUT DIRECTORIES (Auto-managed in experiments/ folder)
+# ============================================================================
+# Note: All outputs (checkpoints, logs, vocab, tensorboard, predictions) 
+# are automatically saved to: experiments/run_{timestamp}/
+# No manual configuration needed.
+
+# ============================================================================
+# DEBUG/DEVELOPMENT
+# ============================================================================
+debug:
+  limit_samples: null           # Set to integer to limit dataset (e.g., 1000 for testing)
+  limit_eval_samples: null      # Limit validation samples
